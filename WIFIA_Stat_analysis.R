@@ -12,7 +12,9 @@ library(stargazer)
 library(xtable)
 library(lmtest)
 library(MASS)
+library(scales)
 
+#Loading the data ----
 Clean_df <- read_excel('Final_Clean.xlsx', range = cell_cols("A:M"))  #Clean_WIFIA - Copy
 
 plot(Clean_df)
@@ -33,12 +35,6 @@ Clean_df['Loan Percapita'] <- round(Clean_df$`WIFIA LOAN AMOUNT:` / Clean_df$`PO
 Clean_df['Loan ratio'] <- round(Clean_df$`WIFIA LOAN AMOUNT:` / Clean_df$`TOTAL WIFIA PROJECT COSTS:`, 3) 
 
 #Descriptive Stats -----
-
-test <-  Clean_df %>%
-  arrange(Clean_df$`WIFIA LOAN AMOUNT:`) %>%
-  head()
-
-xtable(test)
 
 table(Clean_df$`PROJECT TYPE:`)
 
@@ -110,7 +106,7 @@ ggplot(aes(y = (`WIFIA LOAN AMOUNT:`),
   scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6), 
                      breaks = seq(0, 1750000000, by = 150000000))
 
-#Plot VIolin WIFIA PerCapita loan and Field----
+#Plot Violin WIFIA PerCapita loan and Field----
 
 Clean_df %>%
   arrange((`Loan Percapita`)) %>%
@@ -167,30 +163,31 @@ resetPar <- function() {
 
 reg <- lm(data = Clean_df, 
            (`WIFIA LOAN AMOUNT:`) ~ 
-            (Clean_df$`POPULATION SERVED BY PROJECT :`))
+            (`POPULATION SERVED BY PROJECT :`))
 
 reg1 <- lm(data = Clean_df, 
           log(`WIFIA LOAN AMOUNT:`) ~ 
-            (Clean_df$`POPULATION SERVED BY PROJECT :`) )
+            (`POPULATION SERVED BY PROJECT :`) )
 
 reg2 <- lm(data = Clean_df, 
            log(`WIFIA LOAN AMOUNT:`) ~ 
-             log(Clean_df$`POPULATION SERVED BY PROJECT :`) )
+             log(`POPULATION SERVED BY PROJECT :`) )
 
 reg3 <- lm(data = Clean_df, 
            log(`WIFIA LOAN AMOUNT:`) ~ 
-             log(Clean_df$`POPULATION SERVED BY PROJECT :`)+ log(Clean_df$`NUMBER OF JOBS CREATED:`)  )
+             log(`POPULATION SERVED BY PROJECT :`)+ log(`NUMBER OF JOBS CREATED:`)  )
 
 reg4 <- lm(data = Clean_df, 
            log(`WIFIA LOAN AMOUNT:`) ~ 
-             log(Clean_df$`POPULATION SERVED BY PROJECT :`) + log(Clean_df$`NUMBER OF JOBS CREATED:`) + (Clean_df$`PROJECT TYPE:`) )
+             log(`POPULATION SERVED BY PROJECT :`) + log(`NUMBER OF JOBS CREATED:`) + (`PROJECT TYPE:`) )
 
 reg5 <- lm(data = Clean_df, 
            (`WIFIA LOAN AMOUNT:`) ~ 
-             (Clean_df$`POPULATION SERVED BY PROJECT :`) + (Clean_df$`NUMBER OF JOBS CREATED:`) + (Clean_df$`PROJECT TYPE:` ))
+             (`POPULATION SERVED BY PROJECT :`) + (`NUMBER OF JOBS CREATED:`) + (`PROJECT TYPE:` ))
 
-reg4_robust <- rlm(data = Clean_df, log(`WIFIA LOAN AMOUNT:`) ~ 
-                     log(Clean_df$`POPULATION SERVED BY PROJECT :`) + log(Clean_df$`NUMBER OF JOBS CREATED:`) + (Clean_df$`PROJECT TYPE:`))
+reg4_robust <- rlm(data = Clean_df, 
+                   log(Clean_df$`WIFIA LOAN AMOUNT:`) ~ 
+                     log(Clean_df$`POPULATION SERVED BY PROJECT :`) + log(Clean_df$`NUMBER OF JOBS CREATED:`) + Clean_df$`PROJECT TYPE:`)
 
 plot(reg)
 plot(reg1)
@@ -201,16 +198,18 @@ plot(reg5)
 
 par(resetPar())
 
-lmtest::harvtest(reg4) #Null not rejected that there is a better linear reg
+#testing assumptions
+lmtest::harvtest(reg4) #Null rejected - there is a better linear reg
 
-lmtest::raintest(reg4) #Failed, but in log-log, Residual vs.Fitted plot is evenly rand, and line around 0
+lmtest::raintest(reg4) #Failed, but in log-log, Residual vs.Fitted plot is evenly random, and linear around middle
 
-lmtest::bptest(reg4, studentize = FALSE) #H(a) is not rejected: heteroskedasticity, but diagnostic plots and consulting with statistician (see acknowledgments show otherwise) 
+lmtest::bptest(reg4, studentize = FALSE) #H(0) is rejected: heteroskedasticity, but diagnostic plots and consulting with statistician (see acknowledgments show otherwise) 
 
 lmtest::dwtest(reg4) #Null not rejected: no autocorrelation
 
 shapiro.test((reg4$residuals))
 
+#results and formatting
 summary(reg4)
 summary(reg4_robust)
 
@@ -219,21 +218,7 @@ test <- anova(reg2, reg3, reg4)
 xtable(test)
 stargazer(reg4, reg4_robust, title="Results",align=TRUE)
 
-#Other tests ----
-
-reg_other <- lm(`Loan Percapita` ~ `PROJECT TYPE:`, data = Clean_df)
-anova_result <- aov(`Loan Percapita` ~ `PROJECT TYPE:`, data = Clean_df)
-
-summary(anova_result)
-
-plot(reg_other)
-summary(reg_other) #loan percapita is not statistically different among project type
-
-summary(Clean_df$`Loan Percapita`)
-hist(Clean_df$`Loan Percapita`)
-hist(Clean_df$`NUMBER OF JOBS CREATED:`)
-
-summary(lm(Clean_df$`WIFIA LOAN AMOUNT:` ~ Clean_df$`NUMBER OF JOBS CREATED:` + Clean_df$`PROJECT TYPE:`))
+#Quantiles and Predictions ----
 
 quantile(Clean_df$`Loan Percapita`)
 ecdf(Clean_df$`Loan Percapita`)(1000)*100
@@ -241,23 +226,37 @@ ecdf(Clean_df$`Loan Percapita`)(1000)*100
 quantile(Clean_df$`NUMBER OF JOBS CREATED:`)
 ecdf(Clean_df$`NUMBER OF JOBS CREATED:`)(2000)*100
 
-predicted_log_wifia_loan <- coef(reg4)["(Intercept)"] + 
-  coef(reg4)["Clean_df$`PROJECT TYPE:`Wastewater"]* 1 + 
-  (coef(reg4)["log(Clean_df$`NUMBER OF JOBS CREATED:`)"] * 1)
+colnamesuse <- colnames(Clean_df[c(4, 6:8)])
+new_df <- data.frame(
+  WIFIA_LOAN_AMOUNT = c(NA, NA, NA, NA),
+  POPULATION = c(358000, 277000, 813000, 474000), #c(600000, 300000, 600000, 300000),
+  JOBS = c(1018, 565, 1265, 454), #c(1100, 500, 1100, 500),
+  PROJECT_TYPE = c("Wastewater", "Drinking water", "Reuse", "Stormwater")
+)
 
-predicted_wifia_loan <- exp(predicted_log_wifia_loan)
+colnames(new_df) <- colnamesuse
 
-wastewater_series <- wastewater_df$`WIFIA LOAN AMOUNT:`/predicted_wifia_loan
+comma(exp(predict(reg4, new_df)))
 
-test <- data.frame(wastewater_series, wastewater_df$`NUMBER OF JOBS CREATED:`)
+coef_rlm <- reg4_robust$coefficients
 
-test$'residuals' <- abs(test$wastewater_series - test$wastewater_df..NUMBER.OF.JOBS.CREATED..)
+ro_waste <- (coef_rlm[1] + coef_rlm[2]*log(new_df$`POPULATION SERVED BY PROJECT :`[1]) + 
+               coef_rlm[3]*log(new_df$`NUMBER OF JOBS CREATED:`[1]) + coef_rlm[6]*1)
 
-plot(test$residuals, sqrt(test$residuals))
+ro_drink <- (coef_rlm[1] + coef_rlm[2]*log(new_df$`POPULATION SERVED BY PROJECT :`[2]) + 
+               coef_rlm[3]*log(new_df$`NUMBER OF JOBS CREATED:`[2]) )
 
-reg_j1 <- lm(data = Clean_df, log(`NUMBER OF JOBS CREATED:`) ~  `PROJECT TYPE:` + log(`POPULATION SERVED BY PROJECT :`))
-plot(reg_j1)
-summary(reg_j1)
+ro_reuse <- (coef_rlm[1] + coef_rlm[2]*log(new_df$`POPULATION SERVED BY PROJECT :`[3]) + 
+                 coef_rlm[3]*log(new_df$`NUMBER OF JOBS CREATED:`[3]) + coef_rlm[4]*1)
+
+ro_storm <- (coef_rlm[1] + coef_rlm[2]*log(new_df$`POPULATION SERVED BY PROJECT :`[4]) + 
+               coef_rlm[3]*log(new_df$`NUMBER OF JOBS CREATED:`[4]) + coef_rlm[5]*1)
+
+new_df$`WIFIA LOAN AMOUNT: lm` <- comma(exp(predict(reg4, new_df)))
+
+new_df$`WIFIA LOAN AMOUNT: rlm` <- comma(exp(c(ro_waste, ro_drink, ro_reuse, ro_storm)))
+
+xtable(new_df[2:6])
 
 #Mapping prep ----
 
